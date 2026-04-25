@@ -1,0 +1,10 @@
+.git
+.env
+*.db
+*.db-shm
+*.db-wal
+chroma_db/
+uploads/
+data/
+__pycache__/
+.pytest_cache/
