@@ -1,14 +1,8 @@
 .env
 __pycache__/
 *.pyc
-*.db
-*.db-shm
-*.db-wal
-chroma_db/
-chroma_data/
+data/
 .pytest_cache/
 .coverage
 dist/
 *.egg-info/
-uploads/
-chat_history/

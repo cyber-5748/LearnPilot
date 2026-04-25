@@ -10,13 +10,11 @@
   validate_sequence — 校验课时编号连续性和前置依赖合理性，必要时修正
 """
 
-import json
 from typing import TypedDict
 
 from langgraph.graph import StateGraph, START, END
-from openai import OpenAI
 
-from src.config import settings
+from src.agent.utils import llm_json
 from src.schemas.syllabus import PhaseSyllabus, Syllabus
 
 
@@ -27,31 +25,6 @@ class SyllabusState(TypedDict):
     phases:   list[dict]  # 拆解结果：每阶段的课时列表
     syllabus: dict        # 最终输出：Syllabus 字典
     book_toc: str         # 可选：参考书籍的目录结构
-
-
-# ── 工具函数 ──────────────────────────────────────────────────
-
-def _llm_json(prompt: str, schema: type) -> dict:
-    """调用 LLM，要求严格按照 schema 输出 JSON。"""
-    schema_str = json.dumps(schema.model_json_schema(), ensure_ascii=False, indent=2)
-    system = (
-        "你只输出合法的 JSON，严格符合下面的 Schema，不输出任何解释文字，不加 markdown 代码块。\n\n"
-        f"Schema：\n{schema_str}"
-    )
-    client = OpenAI(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
-    resp = client.chat.completions.create(
-        model=settings.llm_model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user",   "content": prompt},
-        ],
-    )
-    raw = resp.choices[0].message.content.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    return json.loads(raw.strip())
 
 
 # ── 节点1：阶段展开 ─────────────────────────────────────────
@@ -117,7 +90,7 @@ def expand_phases_node(state: SyllabusState) -> dict:
 - 同一阶段内课时通常顺序依赖，但并行的知识点可以没有依赖
 - 全部使用中文"""
 
-        data = _llm_json(prompt, PhaseSyllabus)
+        data = llm_json(prompt, PhaseSyllabus)
         all_phases.append(data)
 
         # 更新全局计数器

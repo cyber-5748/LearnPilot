@@ -1,19 +1,39 @@
-"""
-聊天 Agent 的 LangGraph 工作流。
-
-使用 SqliteSaver 做 Checkpointer，实现对话记忆持久化。
-
-图结构：
-  START → classify_intent
-    ↙           ↘
-  retrieve_context  call_llm_chat
-    ↓
-  call_llm_learn
-    ↘           ↙
-      END
-"""
+# ============================================================
+# 图（Graph）：阶段11 — Checkpointer 持久化版
+# ============================================================
+#
+# 阶段11 核心新知识：Checkpointer
+#
+#   graph.compile(checkpointer=SqliteSaver(...))
+#
+#   作用：每次图执行完毕，自动把整个 State 存入 SQLite 数据库。
+#         下次用相同 thread_id 调用时，自动恢复上次的 State。
+#
+#   调用方式变了：
+#     之前：graph.invoke(initial_state)
+#     现在：graph.invoke(initial_state, config={"configurable": {"thread_id": "xxx"}})
+#
+#   thread_id 相当于我们之前的 session_id，LangGraph 用它来区分不同会话。
+#
+#   好处：
+#     - 不再需要 load_history_node / save_history_node
+#     - 服务重启后记忆不丢失（存在 SQLite 文件里）
+#     - 未来可以换成 PostgreSQL 等数据库，代码不用改
+#
+# 图结构（比之前更简洁）：
+#   START
+#     ↓
+#   classify_intent
+#     ↙           ↘
+# retrieve_context  call_llm_chat
+#     ↓
+# call_llm_learn
+#     ↘           ↙
+#     （END）
+# ============================================================
 
 import sqlite3
+from pathlib import Path
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 from src.agent.state import AgentState
@@ -27,7 +47,8 @@ from src.agent.nodes import (
 )
 
 # SQLite 数据库文件路径（持久保存对话记忆）
-DB_PATH = "./memory.db"
+DB_PATH = "./data/memory.db"
+Path("./data").mkdir(exist_ok=True)
 
 
 def build_graph():

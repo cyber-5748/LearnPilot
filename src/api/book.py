@@ -14,12 +14,12 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile, File
 
 from src.rag.parsers import parse_file, SUPPORTED_EXTENSIONS
-from src.rag.knowledge_base import add_document, _collection
+from src.rag.knowledge_base import add_document, get_collection
 from src.storage_plans import save_book, list_books, get_book, delete_book
 
 router = APIRouter()
 
-UPLOAD_DIR = Path("./uploads")
+UPLOAD_DIR = Path("./data/uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
@@ -64,17 +64,28 @@ async def upload_book(file: UploadFile = File(...)):
     toc_text = parsed.get("toc_text", "")
 
     # 存入 RAG 知识库（每个 chunk 带 source 标记，便于按书检索）
-    for i, chunk in enumerate(chunks):
-        doc_id = f"book_{save_path.stem}_{i}"
-        add_document(
-            doc_id=doc_id,
-            text=chunk,
-            metadata={
-                "source": save_path.name,
-                "type": "book",
-                "chunk_index": i,
-            },
-        )
+    successful_ids = []
+    try:
+        for i, chunk in enumerate(chunks):
+            doc_id = f"book_{save_path.stem}_{i}"
+            add_document(
+                doc_id=doc_id,
+                text=chunk,
+                metadata={
+                    "source": save_path.name,
+                    "type": "book",
+                    "chunk_index": i,
+                },
+            )
+            successful_ids.append(doc_id)
+    except Exception:
+        if successful_ids:
+            try:
+                get_collection().delete(ids=successful_ids)
+            except Exception:
+                pass
+        save_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="知识库写入失败，已回滚")
 
     # 记录到 SQLite（含目录文本）
     book_id = save_book(
@@ -125,12 +136,51 @@ def delete_book_api(book_id: int):
         file_path.unlink()
 
     # 删除 RAG 知识库中该书的所有 chunks
+    warning = ""
     try:
-        existing = _collection.get(where={"source": data["filename"]})
+        existing = get_collection().get(where={"source": data["filename"]})
         if existing and existing["ids"]:
-            _collection.delete(ids=existing["ids"])
-    except Exception:
-        pass
+            get_collection().delete(ids=existing["ids"])
+    except Exception as e:
+        print(f"[RAG] 删除书籍向量失败：{e}")
+        warning = "RAG 知识库清理未完成，部分向量可能残留"
 
     delete_book(book_id)
-    return {"ok": True}
+    return {"ok": True, "warning": warning}
+
+
+def clean_orphan_vectors() -> dict:
+    """
+    清理 ChromaDB 中的孤儿书籍向量。
+    扫描 type="book" 的所有 chunks，删除 books 表中已不存在的条目。
+    """
+    try:
+        col = get_collection()
+        book_entries = col.get(where={"type": "book"})
+    except Exception as e:
+        print(f"[RAG] 孤儿清理查询失败：{e}")
+        return {"deleted": 0, "error": str(e)}
+
+    if not book_entries or not book_entries["ids"]:
+        return {"deleted": 0}
+
+    # 获取 books 表中所有有效的 filename
+    valid_filenames = {b["filename"] for b in list_books()}
+
+    # 找出孤儿 ID
+    orphan_ids = []
+    for doc_id, meta in zip(book_entries["ids"], book_entries["metadatas"]):
+        if meta.get("source") not in valid_filenames:
+            orphan_ids.append(doc_id)
+
+    if orphan_ids:
+        col.delete(ids=orphan_ids)
+        print(f"[RAG] 已清理 {len(orphan_ids)} 条孤儿向量")
+
+    return {"deleted": len(orphan_ids)}
+
+
+@router.post("/books/clean-orphans")
+def clean_orphans_api():
+    """手动触发清理 ChromaDB 中的孤儿书籍向量。"""
+    return clean_orphan_vectors()

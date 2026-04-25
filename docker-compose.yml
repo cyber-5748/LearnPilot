@@ -5,9 +5,7 @@ services:
       - "8000:8000"
     volumes:
       # 持久化数据到宿主机，容器重建后不丢失
-      - ./data/memory.db:/app/memory.db
-      - ./data/chroma_db:/app/chroma_db
-      - ./data/uploads:/app/uploads
+      - ./data:/app/data
     env_file:
       - .env
     restart: unless-stopped

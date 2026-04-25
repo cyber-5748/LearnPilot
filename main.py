@@ -1,13 +1,18 @@
 # ============================================================
-# 应用入口
+# 阶段 5：应用入口 main.py
 # ============================================================
 #
 # 运行方式：
-#   python main.py
+#   D:/software/miniconda/envs/13/python.exe main.py
 #
 # 然后打开浏览器访问：
-#   http://localhost:8000       ← 主页面
-#   http://localhost:8000/docs  ← API 文档
+#   http://localhost:8000/docs   ← 自动生成的接口文档（可以直接在网页上测试！）
+#   http://localhost:8000/health ← 健康检查
+#
+# 知识点：
+#   - FastAPI 是 Web 框架，负责接收 HTTP 请求，返回 HTTP 响应
+#   - uvicorn 是服务器，负责监听端口、把请求交给 FastAPI 处理
+#   - /docs 是 FastAPI 自动生成的 Swagger 文档页面，非常好用
 # ============================================================
 
 from fastapi import FastAPI

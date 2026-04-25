@@ -10,13 +10,11 @@
   generate_content   — 基于课时信息 + 参考资料，让 LLM 生成完整课件
 """
 
-import json
 from typing import TypedDict
 
 from langgraph.graph import StateGraph, START, END
-from openai import OpenAI
 
-from src.config import settings
+from src.agent.utils import llm_json
 from src.rag.knowledge_base import search as kb_search, search_by_source as kb_search_by_source
 from src.tools.search import web_search
 from src.schemas.lesson import LessonContent
@@ -31,31 +29,6 @@ class LessonState(TypedDict):
     references:    list[str]   # 检索到的参考资料
     content:       dict        # 最终输出：LessonContent 字典
     book_filename: str         # 可选：关联书籍文件名，用于 RAG 过滤
-
-
-# ── 工具函数 ──────────────────────────────────────────────────
-
-def _llm_json(prompt: str, schema: type) -> dict:
-    """调用 LLM，要求严格按照 schema 输出 JSON。"""
-    schema_str = json.dumps(schema.model_json_schema(), ensure_ascii=False, indent=2)
-    system = (
-        "你只输出合法的 JSON，严格符合下面的 Schema，不输出任何解释文字，不加 markdown 代码块。\n\n"
-        f"Schema：\n{schema_str}"
-    )
-    client = OpenAI(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
-    resp = client.chat.completions.create(
-        model=settings.llm_model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user",   "content": prompt},
-        ],
-    )
-    raw = resp.choices[0].message.content.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    return json.loads(raw.strip())
 
 
 # ── 节点1：检索参考资料 ──────────────────────────────────────
@@ -78,8 +51,11 @@ def search_references_node(state: LessonState) -> dict:
             all_refs.append("【参考书籍内容（课件必须严格基于此内容）】\n" + "\n\n".join(book_chunks))
         print(f"[课件] 从书籍检索：{len(book_chunks)} 条")
 
-    # 通用本地 RAG
+    # 通用本地 RAG（去除与书籍检索重复的内容）
     local_chunks = kb_search(query, n_results=3)
+    if local_chunks and book_filename:
+        book_prefixes = {chunk[:50] for chunk in book_chunks}
+        local_chunks = [c for c in local_chunks if c[:50] not in book_prefixes]
     if local_chunks:
         all_refs.append("【本地知识库】\n" + "\n\n".join(local_chunks))
 
@@ -133,7 +109,7 @@ def generate_content_node(state: LessonState) -> dict:
 - 全部使用中文"""
 
     print(f"[课件] 生成课时 {lesson['lesson_index']}：{lesson['title']}")
-    data = _llm_json(prompt, LessonContent)
+    data = llm_json(prompt, LessonContent)
     print(f"[课件] 课时 {lesson['lesson_index']} 生成完成")
     return {"content": data}
 

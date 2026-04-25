@@ -9,13 +9,11 @@
   analyze_scores — 基于成绩数据，LLM 分析薄弱点、优势、建议
 """
 
-import json
 from typing import TypedDict
 
 from langgraph.graph import StateGraph, START, END
-from openai import OpenAI
 
-from src.config import settings
+from src.agent.utils import llm_json
 from src.schemas.report import LearningReport
 
 
@@ -28,31 +26,6 @@ class ReportState(TypedDict):
     submissions:    list[dict]  # 各课时提交数据
     syllabus:       dict        # 大纲信息
     report:         dict        # 输出：LearningReport 字典
-
-
-# ── 工具函数 ──────────────────────────────────────────────────
-
-def _llm_json(prompt: str, schema: type) -> dict:
-    """调用 LLM，要求严格按照 schema 输出 JSON。"""
-    schema_str = json.dumps(schema.model_json_schema(), ensure_ascii=False, indent=2)
-    system = (
-        "你只输出合法的 JSON，严格符合下面的 Schema，不输出任何解释文字，不加 markdown 代码块。\n\n"
-        f"Schema：\n{schema_str}"
-    )
-    client = OpenAI(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
-    resp = client.chat.completions.create(
-        model=settings.llm_model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user",   "content": prompt},
-        ],
-    )
-    raw = resp.choices[0].message.content.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    return json.loads(raw.strip())
 
 
 # ── 节点：分析成绩 ──────────────────────────────────────────
@@ -131,7 +104,7 @@ def analyze_scores_node(state: ReportState) -> dict:
 - 全部使用中文"""
 
     print(f"[报告] 生成学习报告：{state['plan_title']}")
-    data = _llm_json(prompt, LearningReport)
+    data = llm_json(prompt, LearningReport)
 
     # 用实际数据覆盖（防止 LLM 编造数据）
     data["plan_title"] = state["plan_title"]

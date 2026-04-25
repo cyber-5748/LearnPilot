@@ -4,9 +4,11 @@
 
 import sqlite3
 import json
+from pathlib import Path
 from datetime import datetime
 
-DB_PATH = "./memory.db"
+DB_PATH = "./data/memory.db"
+Path("./data").mkdir(exist_ok=True)
 
 
 def _conn():

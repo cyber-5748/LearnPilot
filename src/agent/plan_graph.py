@@ -9,13 +9,11 @@
   START → parse_requirements → generate_plan → END
 """
 
-import json
 from typing import TypedDict
 
 from langgraph.graph import StateGraph, START, END
-from openai import OpenAI
 
-from src.config import settings
+from src.agent.utils import llm_json
 from src.schemas.plan import LearningRequirements, LearningPlan
 
 
@@ -26,32 +24,6 @@ class PlanState(TypedDict):
     requirements: dict  # 解析后的需求（LearningRequirements 的字典形式）
     plan:         dict  # 生成的学习计划（LearningPlan 的字典形式）
     book_toc:     str   # 可选：参考书籍的目录结构
-
-
-# ── 工具函数 ──────────────────────────────────────────────────
-
-def _llm_json(prompt: str, schema: type) -> dict:
-    """调用 LLM，要求严格按照 schema 输出 JSON，返回解析后的字典。"""
-    schema_str = json.dumps(schema.model_json_schema(), ensure_ascii=False, indent=2)
-    system = (
-        "你只输出合法的 JSON，严格符合下面的 Schema，不输出任何解释文字，不加 markdown 代码块。\n\n"
-        f"Schema：\n{schema_str}"
-    )
-    client = OpenAI(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
-    resp   = client.chat.completions.create(
-        model=settings.llm_model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user",   "content": prompt},
-        ],
-    )
-    raw = resp.choices[0].message.content.strip()
-    # 去掉可能的 ```json ``` 包装
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    return json.loads(raw.strip())
 
 
 # ── 节点1：需求解析 ───────────────────────────────────────────
@@ -76,7 +48,7 @@ def parse_requirements_node(state: PlanState) -> dict:
 - purpose 如果没说就填"综合提升"
 - 全部使用中文"""
 
-    data = _llm_json(prompt, LearningRequirements)
+    data = llm_json(prompt, LearningRequirements)
     print(f"[计划] 需求解析完成：{data}")
     return {"requirements": data}
 
@@ -122,7 +94,7 @@ def generate_plan_node(state: PlanState) -> dict:
 - total_hours 计算：{req.get('total_weeks')} 周 × 7天 × {req.get('daily_hours')} 小时，取整
 - 全部使用中文"""
 
-    data = _llm_json(prompt, LearningPlan)
+    data = llm_json(prompt, LearningPlan)
     print(f"[计划] 生成完成：{data.get('title')}")
     return {"plan": data}
 

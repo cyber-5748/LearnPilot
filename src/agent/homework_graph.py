@@ -9,13 +9,11 @@
      START → grade_answers → END
 """
 
-import json
 from typing import TypedDict
 
 from langgraph.graph import StateGraph, START, END
-from openai import OpenAI
 
-from src.config import settings
+from src.agent.utils import llm_json
 from src.schemas.homework import Homework, SubmissionResult
 
 
@@ -33,31 +31,6 @@ class GradeState(TypedDict):
     homework:   dict       # 作业题目（Homework 字典）
     answers:    list[dict] # 用户提交的答案（AnswerItem 列表）
     result:     dict       # 输出：SubmissionResult 字典
-
-
-# ── 工具函数 ──────────────────────────────────────────────────
-
-def _llm_json(prompt: str, schema: type) -> dict:
-    """调用 LLM，要求严格按照 schema 输出 JSON。"""
-    schema_str = json.dumps(schema.model_json_schema(), ensure_ascii=False, indent=2)
-    system = (
-        "你只输出合法的 JSON，严格符合下面的 Schema，不输出任何解释文字，不加 markdown 代码块。\n\n"
-        f"Schema：\n{schema_str}"
-    )
-    client = OpenAI(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
-    resp = client.chat.completions.create(
-        model=settings.llm_model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user",   "content": prompt},
-        ],
-    )
-    raw = resp.choices[0].message.content.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    return json.loads(raw.strip())
 
 
 # ══════════════════════════════════════════════════════════════
@@ -103,7 +76,7 @@ def generate_questions_node(state: GenerateState) -> dict:
 - 全部使用中文"""
 
     print(f"[作业] 生成课时 {lesson['lesson_index']} 的作业题目")
-    data = _llm_json(prompt, Homework)
+    data = llm_json(prompt, Homework)
     print(f"[作业] 课时 {lesson['lesson_index']} 作业生成完成，{len(data.get('questions', []))} 道题")
     return {"homework": data}
 
@@ -154,7 +127,7 @@ def grade_answers_node(state: GradeState) -> dict:
 - 全部使用中文"""
 
     print(f"[作业] 批改课时 {homework.get('lesson_index', '?')} 的作业")
-    data = _llm_json(prompt, SubmissionResult)
+    data = llm_json(prompt, SubmissionResult)
     print(f"[作业] 批改完成，得分：{data.get('total_score', 0)}/{data.get('max_score', 100)}")
     return {"result": data}
 
